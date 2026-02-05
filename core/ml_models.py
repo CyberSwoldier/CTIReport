@@ -16,12 +16,12 @@ except Exception:
 
 from .geo_utils import get_nordic_baltic_countries
 
-# --- CLUSTERING ---
+
+# ============================================================
+#  CLUSTERING
+# ============================================================
 
 def ml_cluster_threat_patterns(all_ttps):
-    """
-    Cluster TTP strings using TF-IDF + KMeans with silhouette optimization.
-    """
     if not ML_AVAILABLE or len(all_ttps) < 5:
         return None, None
     try:
@@ -62,13 +62,12 @@ def ml_cluster_threat_patterns(all_ttps):
         st.warning(f"Clustering analysis unavailable: {e}")
         return None, None
 
-# --- ANOMALY DETECTION ---
+
+# ============================================================
+#  ANOMALY DETECTION
+# ============================================================
 
 def ml_detect_anomalies(threat_vectors):
-    """
-    Use Isolation Forest to detect anomalous threat patterns.
-    Returns anomaly scores and flagged indices.
-    """
     if not ML_AVAILABLE or len(threat_vectors) < 10:
         return None, None
     try:
@@ -85,13 +84,12 @@ def ml_detect_anomalies(threat_vectors):
         st.warning(f"Anomaly detection unavailable: {e}")
         return None, None
 
-# --- TIME SERIES FORECASTING ---
+
+# ============================================================
+#  TIME SERIES FORECASTING
+# ============================================================
 
 def ml_forecast_time_series(historical_data, periods=4):
-    """
-    Polynomial regression (degree 2) for time series forecasting.
-    Returns forecast dataframe and trend delta.
-    """
     if not ML_AVAILABLE or len(historical_data) < 3:
         return None, None
     try:
@@ -140,11 +138,12 @@ def ml_forecast_time_series(historical_data, periods=4):
         st.warning(f"Time series forecasting unavailable: {e}")
         return None, None
 
+
+# ============================================================
+#  ATTACK-TYPE FORECASTING
+# ============================================================
+
 def ml_forecast_by_attack_type(trend_data, ttp_columns, top_n=5, periods=4):
-    """
-    Generate individual ML forecasts for each attack type.
-    Returns dict with forecasts per TTP.
-    """
     if not ML_AVAILABLE or trend_data.empty or len(trend_data) < 3:
         return None
     try:
@@ -212,40 +211,275 @@ def ml_forecast_by_attack_type(trend_data, ttp_columns, top_n=5, periods=4):
         st.warning(f"Attack-specific forecasting unavailable: {e}")
         return None
 
-# --- EXECUTIVE SUMMARY, THREAT ACTORS, PRIORITIZATION, GEO FORECAST, NLP, RESOURCE ALLOCATION, COURSES ---
-# (These are your existing functions, preserved and slightly cleaned; due to length, I’ll keep them conceptually grouped.)
 
-from .risk_scoring import calculate_iso_risk_score, calculate_nist_risk_score  # if needed
+# ============================================================
+#  EXECUTIVE SUMMARY
+# ============================================================
 
 def ml_generate_executive_summary(report_data, ttp_columns, country_columns, iso_score, nist_score):
-    # (Use your existing implementation here – unchanged logic, maybe small comments)
-    # ... [paste your full function body here exactly as you had it] ...
-    # I’ll keep the structure identical to your last version.
-    # -------------
-    # PLACE YOUR FULL FUNCTION BODY HERE
-    # -------------
-    ...
+    if report_data is None or report_data.empty:
+        return {
+            "threat_level": "UNKNOWN",
+            "ml_confidence": 0.0,
+            "key_insights": [],
+            "attack_patterns": [],
+            "recommendations": []
+        }, "#888888"
+
+    avg_risk = (iso_score + nist_score) / 2 if iso_score and nist_score else 0
+
+    if avg_risk >= 80:
+        threat_level, color = "CRITICAL", "#ff4444"
+    elif avg_risk >= 60:
+        threat_level, color = "HIGH", "#ffaa00"
+    elif avg_risk >= 40:
+        threat_level, color = "ELEVATED", "#ffff00"
+    elif avg_risk > 0:
+        threat_level, color = "MODERATE", "#44ff44"
+    else:
+        threat_level, color = "LOW", "#888888"
+
+    ml_confidence = min(0.95, max(0.3, len(report_data) / 50))
+
+    # TTP extraction
+    all_ttps = []
+    for col in ttp_columns:
+        vals = report_data[col].dropna()
+        for v in vals:
+            if isinstance(v, (list, tuple, set)):
+                all_ttps.extend([str(x) for x in v if x not in [None, "None"]])
+            elif str(v) != "None":
+                all_ttps.append(str(v))
+
+    ttp_counter = Counter(all_ttps)
+    top_ttps = [t for t, _ in ttp_counter.most_common(5)]
+
+    attack_patterns = []
+    if top_ttps:
+        attack_patterns.append(f"Most frequently observed techniques: {', '.join(top_ttps)}")
+
+    # Country exposure
+    all_countries = []
+    for col in country_columns:
+        vals = report_data[col].dropna()
+        all_countries.extend([str(v) for v in vals if str(v) != "None"])
+
+    unique_countries = sorted(set(all_countries))
+    nordic_baltic = set(get_nordic_baltic_countries())
+    nb_overlap = nordic_baltic.intersection(unique_countries)
+
+    key_insights = []
+    if nb_overlap:
+        key_insights.append(f"Active targeting observed in Nordic/Baltic region: {', '.join(sorted(nb_overlap))}.")
+    if unique_countries:
+        key_insights.append(f"Geographic spread across {len(unique_countries)} countries.")
+
+    # Recommendations
+    recommendations = []
+    if threat_level in ["CRITICAL", "HIGH"]:
+        recommendations.append("Escalate to executive briefing and increase monitoring of high-risk geographies.")
+        recommendations.append("Run targeted phishing and ransomware simulations.")
+    elif threat_level in ["ELEVATED", "MODERATE"]:
+        recommendations.append("Reinforce security awareness training in exposed regions.")
+        recommendations.append("Review access controls and MFA coverage.")
+    else:
+        recommendations.append("Maintain baseline monitoring and periodic awareness campaigns.")
+
+    summary = {
+        "threat_level": threat_level,
+        "ml_confidence": ml_confidence,
+        "key_insights": key_insights,
+        "attack_patterns": attack_patterns,
+        "recommendations": recommendations,
+    }
+
+    return summary, color
+
+
+# ============================================================
+#  THREAT ACTOR PROFILING
+# ============================================================
 
 def ml_threat_actor_profiling(report_data, ttp_columns):
-    # ... paste your full function body (unchanged) ...
-    ...
+    if report_data is None or report_data.empty or not ttp_columns:
+        return None
+
+    all_ttps = []
+    for col in ttp_columns:
+        vals = report_data[col].dropna()
+        for v in vals:
+            if isinstance(v, (list, tuple, set)):
+                all_ttps.extend([str(x) for x in v if x not in [None, "None"]])
+            elif str(v) != "None":
+                all_ttps.append(str(v))
+
+    if not all_ttps:
+        return None
+
+    counter = Counter(all_ttps)
+    top = counter.most_common(12)
+
+    actors = {
+        "Actor Cluster A": top[0:4],
+        "Actor Cluster B": top[4:8],
+        "Actor Cluster C": top[8:12],
+    }
+
+    profiles = {}
+    total_incidents = len(all_ttps)
+
+    for name, ttps in actors.items():
+        if not ttps:
+            continue
+        incident_count = sum(c for _, c in ttps)
+        percentage = (incident_count / total_incidents) * 100 if total_incidents else 0
+
+        sophistication = (
+            "High" if incident_count >= 10 else
+            "Medium" if incident_count >= 5 else
+            "Low"
+        )
+
+        profiles[name] = {
+            "type": "Clustered Threat Activity",
+            "sophistication": sophistication,
+            "incident_count": incident_count,
+            "percentage": percentage,
+            "signature_ttps": [t for t, _ in ttps],
+        }
+
+    return profiles
+
+
+# ============================================================
+#  AUTOMATED THREAT PRIORITIZATION
+# ============================================================
 
 def ml_automated_threat_prioritization(report_data, ttp_columns, country_columns, iso_score, nist_score):
-    # ... paste your full function body (unchanged) ...
-    ...
+    if report_data is None or report_data.empty or not ttp_columns:
+        return []
+
+    all_ttps = []
+    ttp_geo = {}
+
+    for _, row in report_data.iterrows():
+        row_ttps = []
+        for col in ttp_columns:
+            val = row.get(col)
+            if isinstance(val, (list, tuple, set)):
+                row_ttps.extend([str(x) for x in val if x not in [None, "None"]])
+            elif pd.notna(val) and str(val) != "None":
+                row_ttps.append(str(val))
+
+        row_countries = []
+        for ccol in country_columns:
+            cval = row.get(ccol)
+            if isinstance(cval, (list, tuple, set)):
+                row_countries.extend([str(x) for x in cval if x not in [None, "None"]])
+            elif pd.notna(cval) and str(cval) != "None":
+                row_countries.append(str(cval))
+
+        for t in row_ttps:
+            all_ttps.append(t)
+            ttp_geo.setdefault(t, set()).update(row_countries)
+
+    if not all_ttps:
+        return []
+
+    counter = Counter(all_ttps)
+    nordic_baltic = set(get_nordic_baltic_countries())
+
+    prioritized = []
+    for ttp, freq in counter.most_common():
+        countries = ttp_geo.get(ttp, set())
+        geo_spread = len(countries)
+        nb_impact = bool(nordic_baltic.intersection(countries))
+
+        base_score = freq * 10 + geo_spread * 5
+        if nb_impact:
+            base_score *= 1.3
+        if iso_score:
+            base_score *= (0.5 + iso_score / 200)
+        if nist_score:
+            base_score *= (0.5 + nist_score / 200)
+
+        if base_score >= 150:
+            priority, color = "CRITICAL", "#ff4444"
+        elif base_score >= 100:
+            priority, color = "HIGH", "#ffaa00"
+        elif base_score >= 60:
+            priority, color = "ELEVATED", "#ffff00"
+        else:
+            priority, color = "MODERATE", "#44ff44"
+
+        prioritized.append({
+            "ttp": ttp,
+            "frequency": freq,
+            "countries": list(countries),
+            "nordic_impact": nb_impact,
+            "score": base_score,
+            "priority": priority,
+            "color": color,
+        })
+
+    prioritized.sort(key=lambda x: x["score"], reverse=True)
+    return prioritized
+
+
+# ============================================================
+#  NORDIC GEOGRAPHIC RISK FORECAST
+# ============================================================
 
 def ml_nordic_geographic_risk_forecast(historical_data, country_columns, periods=4):
-    # ... paste your full function body (unchanged) ...
-    ...
+    if historical_data is None or historical_data.empty or not country_columns:
+        return None
 
-def ml_nlp_intelligence_extraction(report_data, ttp_columns):
-    # ... paste your full function body (unchanged) ...
-    ...
+    nordic_baltic = set(get_nordic_baltic_countries())
+    country_counts = Counter()
+
+    for _, row in historical_data.iterrows():
+        for col in country_columns:
+            val = row.get(col)
+            if isinstance(val, (list, tuple, set)):
+                country_counts.update([str(x) for x in val if x not in [None, "None"]])
+            elif pd.notna(val) and str(val) != "None":
+                country_counts.update([str(val)])
+
+    forecasts = {}
+    for country, count in country_counts.items():
+        if country not in nordic_baltic:
+            continue
+
+        if count >= 20:
+            level = "CRITICAL"
+        elif count >= 10:
+            level = "ELEVATED"
+        elif count >= 5:
+            level = "MODERATE"
+        else:
+            level = "LOW"
+
+        forecasts[country] = {
+            "risk_level": level,
+            "confidence": "high" if count >= 10 else "medium" if count >= 5 else "low",
+            "trend": "increasing" if count >= 10 else "stable" if count >= 5 else "uncertain",
+            "forecast_avg": max(1.0, count / 4),
+        }
+
+    return forecasts
+
+
+# ============================================================
+#  RESOURCE ALLOCATION OPTIMIZER
+# ============================================================
 
 def ml_resource_allocation_optimizer(prioritized_threats, iso_score, nist_score):
-    # ... paste your full function body (unchanged) ...
-    ...
+    if not prioritized_threats:
+        return None
 
-def ml_recommend_courses(trend_data, ttp_columns, forecast_trend):
-    # ... paste your full function body (unchanged) ...
-    ...
+    total_score = sum(t["score"] for t in prioritized_threats)
+    if total_score == 0:
+        return None
+
+    phishing_score = sum(t["score"] for t in prioritized_threats if "phish" in t["ttp"].lower())
+    ransomware_score = sum(t["score"] for t in prioritized
